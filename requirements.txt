@@ -7,3 +7,5 @@ plotly
 hdbscan
 matplotlib
 seaborn
+setuptools
+looseversion
