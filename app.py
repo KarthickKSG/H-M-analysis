@@ -1,3 +1,17 @@
+# --- 1. COMPATIBILITY PATCH (MUST BE AT THE VERY TOP) ---
+import sys
+try:
+    import distutils.version
+except ImportError:
+    import looseversion
+    import types
+    distutils = types.ModuleType("distutils")
+    distutils.version = types.ModuleType("version")
+    distutils.version.LooseVersion = looseversion.LooseVersion
+    sys.modules["distutils"] = distutils
+    sys.modules["distutils.version"] = distutils.version
+
+# --- 2. IMPORTS ---
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,144 +23,158 @@ from sklearn.mixture import GaussianMixture
 from sklearn_extra.cluster import KMedoids
 import hdbscan
 from sklearn.metrics import silhouette_score
+import io
 
-# Page Config
-st.set_page_config(page_title="NeuroCluster | Stress Analysis", layout="wide")
+# --- 3. PAGE CONFIG & STYLING ---
+st.set_page_config(page_title="NeuroCluster | Human Stress Analysis", layout="wide")
 
-# Custom CSS for Animations and Styling
 st.markdown("""
     <style>
     .main { background-color: #0e1117; color: white; }
-    .stButton>button { width: 100%; border-radius: 20px; transition: 0.3s; }
-    .stButton>button:hover { transform: scale(1.05); background-color: #ff4b4b; }
+    div.stButton > button:first-child {
+        background-color: #ff4b4b; color: white; border-radius: 10px; height: 3em; width: 100%;
+        transition: all 0.3s ease-in-out;
+    }
+    div.stButton > button:hover { transform: scale(1.02); border: 2px solid white; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    .reportview-container { animation: fadeIn 2s; }
+    .reportview-container { animation: fadeIn 1.5s; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🧠 Perbandingan K-Means, K-Medoids & Advanced Clustering")
-st.subheader("Analisis Tingkat Stress Manusia Berdasarkan Data Spasial & Distribusi")
-
-# Load Data
+# --- 4. DATA LOADING & MAPPING ---
 @st.cache_data
 def load_data():
-    df = pd.read_csv("country_wise_latest.csv")
-    # Mapping COVID metrics to Stress Metrics for the Theme
+    # Using the provided dataset structure
+    csv_data = """Country/Region,Confirmed,Deaths,Recovered,Active,New cases,New deaths,New recovered,Deaths / 100 Cases,Recovered / 100 Cases,Deaths / 100 Recovered,Confirmed last week,1 week change,1 week % increase,WHO Region
+Afghanistan,36263,1269,25198,9796,106,10,18,3.5,69.49,5.04,35526,737,2.07,Eastern Mediterranean
+Albania,4880,144,2745,1991,117,6,63,2.95,56.25,5.25,4171,709,17.0,Europe
+Algeria,27973,1163,18837,7973,616,8,749,4.16,67.34,6.17,23691,4282,18.07,Africa
+Argentina,167416,3059,72575,91782,4890,120,2057,1.83,43.35,4.21,130774,36642,28.02,Americas
+Australia,15303,167,9311,5825,368,6,137,1.09,60.84,1.79,12428,2875,23.13,Western Pacific
+Brazil,2442375,87618,1846641,508116,23284,614,33728,3.59,75.61,4.74,2118646,323729,15.28,Americas
+Egypt,92482,4652,34838,52992,420,46,1007,5.03,37.67,13.35,88402,4080,4.62,Eastern Mediterranean
+India,1480073,33408,951166,495499,44457,637,33598,2.26,64.26,3.51,1155338,324735,28.11,South-East Asia
+US,4290259,148011,1325804,2816444,56336,1076,27941,3.45,30.9,11.16,3834677,455582,11.88,Americas"""
+    
+    # In a real app, use pd.read_csv("country_wise_latest.csv")
+    df = pd.read_csv(io.StringIO(csv_data))
+    
+    # Mapping to Stress Metrics for the human stress context
     df = df.rename(columns={
         "Confirmed": "Stress_Trigger_Frequency",
-        "Deaths": "Nervous_Breakdown_Rate",
-        "Recovered": "Resilience_Score",
+        "Deaths": "Breakdown_Rate",
+        "Recovered": "Psychological_Resilience",
         "Active": "Current_Stress_Load"
     })
     return df
 
 df = load_data()
 
-# Sidebar - Algorithm Selection
-st.sidebar.header("🕹️ Control Panel")
-selected_algo = st.sidebar.selectbox("Pilih Algoritma", [
-    "K-Means (Baseline)",
-    "K-Medoids (Baseline)",
-    "DBSCAN (Density-Based)",
+# --- 5. SIDEBAR CONTROL PANEL ---
+st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3663/3663335.png", width=100)
+st.sidebar.title("NeuroControl")
+selected_algo = st.sidebar.selectbox("Choose Algorithm", [
+    "K-Means (Centroid)",
+    "K-Medoids (Exemplar)",
+    "DBSCAN (Density)",
     "OPTICS (Ordering Points)",
     "HDBSCAN (Hierarchical Density)",
-    "Gaussian Mixture (Distribution-Based)",
+    "Gaussian Mixture (Distribution)",
     "BIRCH (Grid-Based)"
 ])
 
-features = ["Stress_Trigger_Frequency", "Nervous_Breakdown_Rate", "Resilience_Score", "Current_Stress_Load"]
+# Feature Selection for Clustering
+features = ["Stress_Trigger_Frequency", "Breakdown_Rate", "Psychological_Resilience", "Current_Stress_Load"]
 X = df[features]
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
-# Algorithm Logic
+# --- 6. CLUSTERING LOGIC ---
 clusters = None
-model_desc = ""
+info_text = ""
 
-if selected_algo == "K-Means (Baseline)":
-    k = st.sidebar.slider("Number of Clusters (k)", 2, 10, 3)
-    model = KMeans(n_clusters=k, init='k-means++', random_state=42)
+if selected_algo == "K-Means (Centroid)":
+    k = st.sidebar.slider("Clusters (k)", 2, 5, 3)
+    model = KMeans(n_clusters=k, random_state=42)
     clusters = model.fit_predict(X_scaled)
-    model_desc = "K-Means membagi data berdasarkan jarak Euclidean ke centroid."
+    info_text = "K-Means partitions data into k clusters where each point belongs to the cluster with the nearest mean."
 
-elif selected_algo == "K-Medoids (Baseline)":
-    k = st.sidebar.slider("Number of Clusters (k)", 2, 10, 3)
+elif selected_algo == "K-Medoids (Exemplar)":
+    k = st.sidebar.slider("Clusters (k)", 2, 5, 3)
     model = KMedoids(n_clusters=k, random_state=42)
     clusters = model.fit_predict(X_scaled)
-    model_desc = "K-Medoids menggunakan titik data nyata (medoids) sebagai pusat, lebih robust terhadap outlier."
+    info_text = "K-Medoids uses actual data points as centers, making it more robust to extreme outliers in stress levels."
 
-elif selected_algo == "DBSCAN (Density-Based)":
-    eps = st.sidebar.slider("Epsilon (Distance)", 0.1, 2.0, 0.5)
-    min_samples = st.sidebar.slider("Min Samples", 1, 10, 5)
-    model = DBSCAN(eps=eps, min_samples=min_samples)
+elif selected_algo == "DBSCAN (Density)":
+    eps = st.sidebar.slider("Epsilon (Radius)", 0.1, 2.0, 0.8)
+    model = DBSCAN(eps=eps, min_samples=2)
     clusters = model.fit_predict(X_scaled)
-    model_desc = "DBSCAN mengelompokkan area dengan kepadatan tinggi dan mendeteksi noise."
+    info_text = "DBSCAN finds core stress patterns and marks isolated cases as noise (-1)."
 
 elif selected_algo == "OPTICS (Ordering Points)":
-    model = OPTICS(min_samples=5)
+    model = OPTICS(min_samples=2)
     clusters = model.fit_predict(X_scaled)
-    model_desc = "OPTICS mirip DBSCAN tetapi lebih baik dalam menangani kepadatan yang bervariasi."
+    info_text = "OPTICS identifies clusters of varying density, ideal for complex human behavioral data."
 
 elif selected_algo == "HDBSCAN (Hierarchical Density)":
-    min_cluster_size = st.sidebar.slider("Min Cluster Size", 2, 20, 5)
-    model = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size)
+    model = hdbscan.HDBSCAN(min_cluster_size=2)
     clusters = model.fit_predict(X_scaled)
-    model_desc = "HDBSCAN membuat hierarki kepadatan untuk menemukan klaster dengan berbagai bentuk."
+    info_text = "HDBSCAN creates a hierarchy of clusters, effectively separating subtle stress levels from intense ones."
 
-elif selected_algo == "Gaussian Mixture (Distribution-Based)":
-    n_comp = st.sidebar.slider("Components", 2, 10, 3)
-    model = GaussianMixture(n_components=n_comp)
+elif selected_algo == "Gaussian Mixture (Distribution)":
+    n = st.sidebar.slider("Components", 2, 5, 3)
+    model = GaussianMixture(n_components=n)
     clusters = model.fit_predict(X_scaled)
-    model_desc = "GMM mengasumsikan data berasal dari distribusi Gaussian yang tumpang tindih."
+    info_text = "GMM models data as a mixture of multiple Gaussian distributions (Probabilistic clustering)."
 
 elif selected_algo == "BIRCH (Grid-Based)":
-    n_clusters = st.sidebar.slider("Clusters", 2, 10, 3)
-    model = Birch(n_clusters=n_clusters)
+    model = Birch(n_clusters=3)
     clusters = model.fit_predict(X_scaled)
-    model_desc = "BIRCH sangat efisien untuk dataset besar menggunakan struktur Tree."
+    info_text = "BIRCH uses a Clustering Feature Tree to quickly process data in memory-constrained environments."
 
-# Add clusters to DF
 df['Cluster'] = clusters.astype(str)
 
-# Visualizations
-col1, col2 = st.columns([2, 1])
+# --- 7. MAIN UI & EXTRAORDINARY ANIMATIONS ---
+st.title("🧠 Human Stress Level Clustering Analysis")
+st.markdown("### Perbandingan K-Means, K-Medoids, dan Algoritma Lanjut")
+
+col1, col2 = st.columns([3, 1])
 
 with col1:
-    st.markdown(f"### 🚀 Visualisasi: {selected_algo}")
-    # Animated 3D Scatter Plot
+    # 3D Animated Scatter Plot
     fig = px.scatter_3d(
         df, 
         x='Stress_Trigger_Frequency', 
-        y='Resilience_Score', 
+        y='Psychological_Resilience', 
         z='Current_Stress_Load',
         color='Cluster',
+        size='Breakdown_Rate',
         hover_name='Country/Region',
+        animation_frame='Cluster', # Animation by cluster reveal
         template="plotly_dark",
-        animation_frame='WHO Region', # Extra Animation
-        title=f"Stress Level Mapping ({selected_algo})"
+        color_discrete_sequence=px.colors.qualitative.Prism
     )
-    fig.update_layout(margin=dict(l=0, r=0, b=0, t=30))
+    fig.update_layout(
+        scene=dict(xaxis_title='Triggers', yaxis_title='Resilience', zaxis_title='Load'),
+        margin=dict(l=0, r=0, b=0, t=0)
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    st.markdown("### 📊 Metrics & Info")
-    st.info(model_desc)
+    st.info(f"**Current Algorithm:** {selected_algo}")
+    st.write(info_text)
     
     if len(set(clusters)) > 1:
         score = silhouette_score(X_scaled, clusters)
-        st.metric("Silhouette Score", f"{score:.3f}")
-        st.progress(float((score + 1) / 2))
-    else:
-        st.warning("Hanya satu klaster terdeteksi. Sesuaikan parameter.")
+        st.metric("Model Quality (Silhouette)", f"{score:.2f}")
+    
+    st.write("---")
+    st.write("**Quick Data View:**")
+    st.dataframe(df[['Country/Region', 'Cluster']].head(10))
 
-    st.write("Top Countries in Stress Group:")
-    st.dataframe(df[['Country/Region', 'Cluster']].head(10), use_container_width=True)
-
-# Comparison Section
-st.divider()
-st.markdown("### 📈 Animated Trend Analysis")
-fig_area = px.area(df.sort_values(by='Stress_Trigger_Frequency'), 
-             x="Country/Region", y="Current_Stress_Load", color="Cluster",
-             line_group="WHO Region", title="Stress Load Distribution Across Regions",
-             template="plotly_dark")
-st.plotly_chart(fig_area, use_container_width=True)
+# --- 8. TREND ANIMATION ---
+st.subheader("📊 Regional Stress Intensity Trend")
+fig_bar = px.bar(df, x="Country/Region", y="Current_Stress_Load", color="Cluster",
+             animation_frame="WHO Region", hover_data=features,
+             template="plotly_dark", barmode="group")
+st.plotly_chart(fig_bar, use_container_width=True)
