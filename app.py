@@ -1,4 +1,4 @@
-# --- 1. COMPATIBILITY PATCH (MUST BE AT THE VERY TOP) ---
+# --- 1. COMPATIBILITY PATCH (FOR PYTHON 3.12+) ---
 import sys
 try:
     import distutils.version
@@ -16,157 +16,171 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans, DBSCAN, OPTICS, Birch
 from sklearn.mixture import GaussianMixture
 from sklearn_extra.cluster import KMedoids
 import hdbscan
 from sklearn.metrics import silhouette_score
-import io
+import time
 
-# --- 3. PAGE CONFIG & STYLING ---
-st.set_page_config(page_title="NeuroCluster Pro | Custom Analysis", layout="wide")
+# --- 3. PAGE CONFIGURATION ---
+st.set_page_config(page_title="NeuroCluster | Stress Analysis", layout="wide", page_icon="🧠")
 
+# Professional Dark Theme CSS
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; color: white; }
-    div.stButton > button:first-child {
-        background-color: #ff4b4b; color: white; border-radius: 10px; height: 3em; width: 100%;
-        transition: all 0.3s ease-in-out;
+    .main { background-color: #0e1117; }
+    .stButton>button {
+        width: 100%; border-radius: 12px; height: 3.5em; 
+        background-image: linear-gradient(to right, #6a11cb 0%, #2575fc 100%);
+        color: white; border: none; font-weight: bold; transition: 0.4s;
     }
-    .stMetric { background-color: #1e2130; padding: 15px; border-radius: 10px; border: 1px solid #3e4259; }
+    .stButton>button:hover { transform: scale(1.02); box-shadow: 0 10px 20px rgba(0,0,0,0.4); }
+    .upload-box { border: 2px dashed #444; padding: 30px; border-radius: 15px; text-align: center; }
+    .metric-card { background: #1e2130; padding: 20px; border-radius: 15px; border-left: 5px solid #2575fc; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. DATA HANDLING LOGIC ---
-@st.cache_data
-def load_default_data():
-    csv_data = """Country/Region,Confirmed,Deaths,Recovered,Active,WHO Region
-    Afghanistan,36263,1269,25198,9796,Eastern Mediterranean
-    Albania,4880,144,2745,1991,Europe
-    Algeria,27973,1163,18837,7973,Africa
-    Argentina,167416,3059,72575,91782,Americas
-    Australia,15303,167,9311,5825,Western Pacific
-    Brazil,2442375,87618,1846641,508116,Americas
-    Egypt,92482,4652,34838,52992,Eastern Mediterranean
-    India,1480073,33408,951166,495499,South-East Asia
-    US,4290259,148011,1325804,2816444,Americas"""
-    return pd.read_csv(io.StringIO(csv_data))
+# --- 4. LANDING & UPLOAD ---
+st.title("🧠 NeuroCluster AI")
+st.subheader("Clustering Analisis Tingkat Stress Manusia")
 
-# Sidebar: File Upload
-st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3663/3663335.png", width=80)
-st.sidebar.title("Data Center")
-uploaded_file = st.sidebar.file_uploader("Upload your Stress Dataset (CSV)", type="csv")
+if 'analyzed' not in st.session_state:
+    st.session_state.analyzed = False
+
+# Step 1: File Upload
+uploaded_file = st.file_uploader("📁 Step 1: Upload CSV Data to Start Analysis", type="csv")
 
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
-    st.sidebar.success("Custom Dataset Loaded!")
+    st.success(f"Successfully loaded {uploaded_file.name} ({len(df)} rows)")
+    
+    # Show Data Preview
+    with st.expander("👀 View Data Preview"):
+        st.dataframe(df.head(10), use_container_width=True)
+
+    # Step 2: Configuration columns
+    st.divider()
+    st.markdown("### ⚙️ Step 2: Configure Parameters")
+    
+    col_cfg1, col_cfg2 = st.columns([1, 1])
+    
+    with col_cfg1:
+        st.markdown("#### Feature Mapping")
+        num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        if len(num_cols) < 3:
+            st.error("Error: Dataset must have at least 3 numerical columns.")
+            st.stop()
+            
+        feat_x = st.selectbox("X-Axis (e.g., Stress Triggers)", num_cols, index=0)
+        feat_y = st.selectbox("Y-Axis (e.g., Resilience)", num_cols, index=1)
+        feat_z = st.selectbox("Z-Axis (e.g., Current Load)", num_cols, index=2)
+        
+    with col_cfg2:
+        st.markdown("#### Algorithm Selection")
+        selected_algo = st.selectbox("Choose Clustering Logic", [
+            "K-Means (Centroid-based)",
+            "K-Medoids (Exemplar-based)",
+            "DBSCAN (Density-based)",
+            "OPTICS (Multi-density)",
+            "HDBSCAN (Hierarchical)",
+            "Gaussian Mixture (Probabilistic)",
+            "BIRCH (Grid-based)"
+        ])
+        
+        # Dynamic hyperparams
+        algo_params = {}
+        if "K-Means" in selected_algo or "K-Medoids" in selected_algo:
+            algo_params['k'] = st.slider("Number of Clusters (k)", 2, 10, 3)
+        elif "DBSCAN" in selected_algo:
+            algo_params['eps'] = st.slider("Epsilon (Radius)", 0.1, 5.0, 0.5)
+            algo_params['min_samples'] = st.number_input("Min Samples", 2, 20, 5)
+
+    # Step 3: Trigger Analysis
+    if st.button("🚀 START CLUSTERING ANALYSIS"):
+        st.session_state.analyzed = True
+        with st.spinner("Initializing NeuroCluster Engines..."):
+            time.sleep(1.5) # For dramatic effect
+
+    # --- 5. EXECUTION & VISUALIZATION ---
+    if st.session_state.analyzed:
+        st.divider()
+        
+        # Prepare Data
+        X = df[[feat_x, feat_y, feat_z]].fillna(0)
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        
+        # Modeling
+        try:
+            if "K-Means" in selected_algo:
+                model = KMeans(n_clusters=algo_params['k'], random_state=42)
+            elif "K-Medoids" in selected_algo:
+                model = KMedoids(n_clusters=algo_params['k'], random_state=42)
+            elif "DBSCAN" in selected_algo:
+                model = DBSCAN(eps=algo_params['eps'], min_samples=algo_params['min_samples'])
+            elif "OPTICS" in selected_algo:
+                model = OPTICS(min_samples=5)
+            elif "HDBSCAN" in selected_algo:
+                model = hdbscan.HDBSCAN(min_cluster_size=5)
+            elif "Gaussian Mixture" in selected_algo:
+                model = GaussianMixture(n_components=3)
+            elif "BIRCH" in selected_algo:
+                model = Birch(n_clusters=3)
+            
+            labels = model.fit_predict(X_scaled)
+            df['Cluster'] = labels.astype(str)
+            
+            # --- Results Dashboard ---
+            res1, res2, res3 = st.columns(3)
+            with res1:
+                st.markdown(f'<div class="metric-card"><h4>Algorithm</h4><h2>{selected_algo.split()[0]}</h2></div>', unsafe_allow_html=True)
+            with res2:
+                n_clusters = len(np.unique(labels[labels != -1]))
+                st.markdown(f'<div class="metric-card"><h4>Clusters Found</h4><h2>{n_clusters}</h2></div>', unsafe_allow_html=True)
+            with res3:
+                if n_clusters > 1:
+                    score = silhouette_score(X_scaled, labels)
+                    st.markdown(f'<div class="metric-card"><h4>Silhouette Score</h4><h2>{score:.2f}</h2></div>', unsafe_allow_html=True)
+            
+            # --- Extraordinary Animations ---
+            st.markdown("### 🌐 Dynamic 3D Stress Mapping")
+            
+            fig = px.scatter_3d(
+                df, x=feat_x, y=feat_y, z=feat_z,
+                color='Cluster',
+                hover_name=df.columns[0],
+                symbol='Cluster',
+                opacity=0.8,
+                template="plotly_dark",
+                color_discrete_sequence=px.colors.qualitative.Alphabet,
+                animation_frame='Cluster' if "K-Means" in selected_algo else None # Animate group appearance
+            )
+            
+            fig.update_layout(
+                scene=dict(camera=dict(eye=dict(x=1.5, y=1.5, z=1.5))),
+                margin=dict(l=0, r=0, b=0, t=0),
+                height=700
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Comparison View
+            st.markdown("### 📊 Regional Cluster Distribution")
+            fig_bar = px.histogram(df, x="Cluster", color="Cluster", 
+                                   animation_frame="Cluster",
+                                   template="plotly_dark", barmode="group")
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+        except Exception as e:
+            st.error(f"Analysis Error: {str(e)}")
+
 else:
-    df = load_default_data()
-    st.sidebar.info("Using Default Example Dataset")
-
-# Sidebar: Feature Mapping (Dynamic)
-st.sidebar.subheader("Feature Mapping")
-numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-
-if len(numeric_cols) < 3:
-    st.error("Dataset needs at least 3 numerical columns for 3D Clustering.")
-    st.stop()
-
-# Let user choose which columns represent which stress metric
-feat_x = st.sidebar.selectbox("Stress Triggers (X-Axis)", numeric_cols, index=0)
-feat_y = st.sidebar.selectbox("Resilience Score (Y-Axis)", numeric_cols, index=min(1, len(numeric_cols)-1))
-feat_z = st.sidebar.selectbox("Stress Load (Z-Axis)", numeric_cols, index=min(2, len(numeric_cols)-1))
-feat_size = st.sidebar.selectbox("Breakdown Rate (Bubble Size)", numeric_cols, index=min(3, len(numeric_cols)-1))
-
-selected_features = [feat_x, feat_y, feat_z, feat_size]
-
-# Sidebar: Algorithm Selection
-st.sidebar.divider()
-st.sidebar.subheader("Algorithm Settings")
-selected_algo = st.sidebar.selectbox("Select Model", [
-    "K-Means (Centroid)", "K-Medoids (Exemplar)", "DBSCAN (Density)", 
-    "OPTICS (Ordering)", "HDBSCAN (Hierarchical)", "Gaussian Mixture", "BIRCH"
-])
-
-# --- 5. CLUSTERING ENGINE ---
-X = df[selected_features].fillna(0)
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-
-clusters = None
-if selected_algo == "K-Means (Centroid)":
-    k = st.sidebar.slider("Clusters", 2, 8, 3)
-    clusters = KMeans(n_clusters=k, random_state=42).fit_predict(X_scaled)
-elif selected_algo == "K-Medoids (Exemplar)":
-    k = st.sidebar.slider("Clusters", 2, 8, 3)
-    clusters = KMedoids(n_clusters=k, random_state=42).fit_predict(X_scaled)
-elif selected_algo == "DBSCAN (Density)":
-    eps = st.sidebar.slider("Epsilon", 0.1, 2.0, 0.5)
-    clusters = DBSCAN(eps=eps, min_samples=2).fit_predict(X_scaled)
-elif selected_algo == "OPTICS (Ordering)":
-    clusters = OPTICS(min_samples=2).fit_predict(X_scaled)
-elif selected_algo == "HDBSCAN (Hierarchical)":
-    clusters = hdbscan.HDBSCAN(min_cluster_size=2).fit_predict(X_scaled)
-elif selected_algo == "Gaussian Mixture":
-    n = st.sidebar.slider("Components", 2, 8, 3)
-    clusters = GaussianMixture(n_components=n).fit_predict(X_scaled)
-elif selected_algo == "BIRCH":
-    clusters = Birch(n_clusters=3).fit_predict(X_scaled)
-
-df['Cluster_Label'] = clusters.astype(str)
-
-# --- 6. MAIN DASHBOARD ---
-st.title("🧠 NeuroCluster: Compare & Analyze")
-st.markdown(f"Currently comparing clusters using **{selected_algo}** across selected features.")
-
-m1, m2, m3 = st.columns(3)
-with m1:
-    st.metric("Total Samples", len(df))
-with m2:
-    st.metric("Detected Clusters", len(np.unique(clusters)))
-with m3:
-    if len(np.unique(clusters)) > 1:
-        score = silhouette_score(X_scaled, clusters)
-        st.metric("Clustering Accuracy (Silh.)", f"{score:.2f}")
-
-st.divider()
-
-# EXTRAORDINARY 3D ANIMATION
-st.subheader("🌐 3D Dynamic Stress Map")
-fig_3d = px.scatter_3d(
-    df, x=feat_x, y=feat_y, z=feat_z,
-    color='Cluster_Label', size=feat_size,
-    hover_name=df.columns[0], # Usually the name/ID column
-    animation_frame='Cluster_Label', # Smooth transition between clusters
-    template="plotly_dark",
-    color_discrete_sequence=px.colors.qualitative.Vivid,
-    height=700
-)
-fig_3d.update_layout(scene=dict(bgcolor='black'))
-st.plotly_chart(fig_3d, use_container_width=True)
-
-# TABULAR COMPARISON
-st.subheader("📋 Feature Distribution by Cluster")
-col_a, col_b = st.columns([2, 1])
-
-with col_a:
-    # Animated Bar Chart
-    fig_bar = px.bar(
-        df, x='Cluster_Label', y=feat_z, 
-        color='Cluster_Label',
-        animation_frame='Cluster_Label',
-        title=f"Distribution of {feat_z}",
-        template="plotly_dark"
-    )
-    st.plotly_chart(fig_bar, use_container_width=True)
-
-with col_b:
-    st.write("**Cluster Summary Data**")
-    summary = df.groupby('Cluster_Label')[selected_features].mean()
-    st.dataframe(summary.style.background_gradient(cmap='Blues'), use_container_width=True)
-
-# DOWNLOAD SECTION
-st.divider()
-csv = df.to_csv(index=False).encode('utf-8')
-st.download_button("📥 Download Clustered Data", data=csv, file_name="clustered_stress_data.csv", mime="text/csv")
+    # Initial State Instruction
+    st.info("👋 Welcome! Please upload a CSV file to begin the human stress clustering process.")
+    st.markdown("""
+    **Required Data Format:**
+    - A CSV file containing at least 3 numerical columns (e.g., Stress Score, Heart Rate, Hours of Sleep).
+    - Optional: A text column for names/identifiers (e.g., Country or Participant ID).
+    """)
