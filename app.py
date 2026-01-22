@@ -4,178 +4,155 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans, DBSCAN
+from sklearn.cluster import KMeans
 from sklearn_extra.cluster import KMedoids
 from sklearn.metrics import silhouette_score
-import time
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="NeuroCluster Premium", layout="wide", page_icon="💎")
+st.set_page_config(page_title="NeuroCluster AI | Analytics", layout="wide", page_icon="💎")
 
-# --- SMOOTH BLUE GLASSY CSS ---
+# --- CUSTOM CSS: PREMIUM BLUE GLASSY THEME ---
 st.markdown("""
     <style>
     .stApp {
-        background: radial-gradient(circle at top right, #051937, #000c1d);
-        color: #e2e8f0;
+        background: radial-gradient(circle at top right, #001f3f, #000814);
+        color: #f8fafc;
     }
     .glass-card {
-        background: rgba(255, 255, 255, 0.03);
+        background: rgba(255, 255, 255, 0.02);
         backdrop-filter: blur(15px);
+        -webkit-backdrop-filter: blur(15px);
         border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 25px;
-        padding: 25px;
-        margin-bottom: 25px;
+        border-radius: 20px;
+        padding: 24px;
+        margin-bottom: 24px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     }
-    .main-title {
-        background: linear-gradient(90deg, #00f2fe, #4facfe);
+    .title-text {
+        background: linear-gradient(90deg, #38bdf8, #2563eb);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        font-weight: 900;
-        font-size: 3rem;
-        text-align: center;
+        font-weight: 800; font-size: 2.8rem; text-align: center;
     }
-    /* Style Tabs */
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+    .stTabs [data-baseweb="tab-list"] { gap: 12px; }
     .stTabs [data-baseweb="tab"] {
         background-color: rgba(255, 255, 255, 0.05);
-        border-radius: 10px 10px 0px 0px;
-        padding: 10px 20px;
-        color: white;
+        border-radius: 8px; padding: 10px 20px; color: #94a3b8;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #2563eb !important; color: white !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- SIDEBAR CONTROL ---
+# --- SIDEBAR ENGINE ---
 with st.sidebar:
-    st.markdown("## ⚙️ Logic Control")
-    uploaded_file = st.file_uploader("Upload CSV Data", type="csv")
+    st.image("https://cdn-icons-png.flaticon.com/512/2103/2103633.png", width=60)
+    st.markdown("### 🎛️ Analytics Core")
+    uploaded_file = st.file_uploader("Data Source (CSV)", type="csv")
     
     if uploaded_file:
-        df_raw = pd.read_csv(uploaded_file)
+        df = pd.read_csv(uploaded_file)
+        nums = df.select_dtypes(include=[np.number]).columns.tolist()
+        
+        f_x = st.selectbox("X-Axis (Frequency/Time)", nums, index=0)
+        f_y = st.selectbox("Y-Axis (Intensity/Year)", nums, index=min(1, len(nums)-1))
+        f_z = st.selectbox("Z-Axis (Value/Load)", nums, index=min(2, len(nums)-1))
         
         st.divider()
-        nums = df_raw.select_dtypes(include=[np.number]).columns.tolist()
+        algo_name = st.selectbox("Clustering Logic", ["K-Means", "K-Medoids"])
+        k = st.slider("Target Segments (k)", 2, 8, 4)
         
-        f_x = st.selectbox("X-Axis (Spatial)", nums, index=0)
-        f_y = st.selectbox("Y-Axis (Temporal)", nums, index=min(1, len(nums)-1))
-        f_z = st.selectbox("Z-Axis (Mortality)", nums, index=min(2, len(nums)-1))
-        
-        st.divider()
-        algo = st.selectbox("Algorithm", ["K-Means", "K-Medoids", "DBSCAN"])
-        k = st.slider("Target Clusters", 2, 8, 4)
-        
-        # Color Palette Selection
-        palette = st.selectbox("Cluster Color Theme", ["Prism", "Vivid", "Bold", "Safe"])
-        palette_map = {"Prism": px.colors.qualitative.Prism, "Vivid": px.colors.qualitative.Vivid, 
-                       "Bold": px.colors.qualitative.Bold, "Safe": px.colors.qualitative.Safe}
+        # Color Theme
+        c_seq = px.colors.qualitative.G10 # Professional palette
 
-# --- MAIN INTERFACE ---
-st.markdown('<h1 class="main-title">NeuroCluster Analysis</h1>', unsafe_allow_html=True)
+# --- MAIN DASHBOARD ---
+st.markdown('<h1 class="title-text">NeuroCluster Analytics</h1>', unsafe_allow_html=True)
 
-if uploaded_file is not None:
-    # 1. Processing Logic
-    X = df_raw[[f_x, f_y, f_z]].fillna(0)
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    
-    if algo == "K-Means":
-        model = KMeans(n_clusters=k, random_state=42, n_init=10)
-    elif algo == "K-Medoids":
-        model = KMedoids(n_clusters=k, random_state=42)
-    else:
-        model = DBSCAN(eps=0.5, min_samples=3)
-        
+if uploaded_file:
+    # 1. Cluster Execution
+    X = df[[f_x, f_y, f_z]].fillna(0)
+    X_scaled = StandardScaler().fit_transform(X)
+    model = KMeans(n_clusters=k, random_state=42) if algo_name == "K-Means" else KMedoids(n_clusters=k, random_state=42)
     labels = model.fit_predict(X_scaled)
-    df_raw['Cluster'] = [f"Cluster {l}" if l != -1 else "Noise" for l in labels]
-    
-    # --- TOP ROW METRICS ---
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        st.markdown(f'<div class="glass-card"><h4>Engine</h4><h2>{algo}</h2></div>', unsafe_allow_html=True)
-    with m2:
-        st.markdown(f'<div class="glass-card"><h4>Groups</h4><h2>{len(set(labels))}</h2></div>', unsafe_allow_html=True)
-    with m3:
-        try: score = silhouette_score(X_scaled, labels)
-        except: score = 0
-        st.markdown(f'<div class="glass-card"><h4>Reliability</h4><h2>{score:.2f}</h2></div>', unsafe_allow_html=True)
+    df['Cluster'] = [f"Pattern {l}" for l in labels]
 
-    # --- MAIN 3D CHART (SHAPE: CIRCLE, COLORS: DIFFERENT) ---
+    # 2. Hero Visual (3D Cluster)
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.subheader("🌐 3D Spatial Pattern Mapping")
-    
-    fig_3d = px.scatter_3d(
-        df_raw, x=f_x, y=f_y, z=f_z,
-        color='Cluster',
-        hover_name=df_raw.columns[0],
-        # Forces the marker to be a circle (sphere in 3D)
-        symbol_sequence=['circle'], 
-        # Uses the selected different-colored palette
-        color_discrete_sequence=palette_map[palette],
-        opacity=0.85, height=700, template="plotly_dark"
-    )
-    
-    fig_3d.update_layout(
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        scene=dict(
-            xaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
-            yaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
-            zaxis=dict(gridcolor='rgba(255,255,255,0.1)')
-        )
-    )
+    st.subheader("🌐 3D Spatial Neural Mapping")
+    fig_3d = px.scatter_3d(df, x=f_x, y=f_y, z=f_z, color='Cluster', 
+                           symbol_sequence=['circle'], color_discrete_sequence=c_seq,
+                           template="plotly_dark", height=600)
     st.plotly_chart(fig_3d, use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- MULTI-VERACITY CHART SECTION ---
+    # 3. Multiple Veracities of Analysis Tabs
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    tab1, tab2, tab3 = st.tabs(["📉 Temporal Spline", "☀️ Cluster Composition", "🎻 Spread Density"])
-    
+    tab1, tab2, tab3, tab4 = st.tabs(["⚖️ Comparison", "📈 Trend", "🧩 Composition", "📊 Distribution"])
+
+    # --- TAB 1: COMPARISON (Bar, Bullet) ---
     with tab1:
-        st.markdown("### Smooth Trend Analysis")
-        # Creating a unique timeline for sorting
-        if 'Year' in df_raw.columns and 'Week number' in df_raw.columns:
-            df_raw['Timeline'] = df_raw['Year'] + (df_raw['Week number'] / 53)
-            sort_col = 'Timeline'
-        else:
-            sort_col = f_x
-            
-        fig_line = px.line(
-            df_raw.sort_values(sort_col), 
-            x=sort_col, y=f_z, color='Cluster',
-            line_shape='spline', # Makes the line smooth
-            color_discrete_sequence=palette_map[palette],
-            template="plotly_dark"
-        )
-        fig_line.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig_line, use_container_width=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("#### Item Comparison (Column)")
+            avg_val = df.groupby('Cluster')[f_z].mean().reset_index()
+            fig_bar = px.bar(avg_val, x='Cluster', y=f_z, color='Cluster', color_discrete_sequence=c_seq, template="plotly_dark")
+            st.plotly_chart(fig_bar, use_container_width=True)
+        with c2:
+            st.markdown("#### Performance vs Target (Bullet)")
+            curr_val = df[f_z].mean()
+            target_val = df[f_z].max() * 0.8 # Simulated target
+            fig_bullet = go.Figure(go.Indicator(
+                mode = "number+gauge+delta", value = curr_val,
+                delta = {'reference': target_val},
+                gauge = {'shape': "bullet", 'bar': {'color': "#38bdf8"}},
+                title = {'text': "Avg Load"}
+            ))
+            fig_bullet.update_layout(template="plotly_dark", height=250)
+            st.plotly_chart(fig_bullet, use_container_width=True)
 
+    # --- TAB 2: TREND (Line, Area) ---
     with tab2:
-        st.markdown("### Population Hierarchy")
-        # Sunburst chart showing how data is nested
-        path_cols = ['Cluster']
-        if 'Country' in df_raw.columns: path_cols.append('Country')
-        if 'Age' in df_raw.columns: path_cols.append('Age')
+        st.markdown("#### Temporal Trend Evolution")
+        # Ensure a timeline if columns exist
+        timeline_col = 'Year' if 'Year' in df.columns else f_x
+        df_sort = df.sort_values(timeline_col)
         
-        fig_sun = px.sunburst(
-            df_raw, path=path_cols, values=f_z,
-            color='Cluster',
-            color_discrete_sequence=palette_map[palette],
-            template="plotly_dark"
-        )
-        st.plotly_chart(fig_sun, use_container_width=True)
+        fig_area = px.area(df_sort, x=timeline_col, y=f_z, color='Cluster', 
+                           line_shape='spline', color_discrete_sequence=c_seq, template="plotly_dark")
+        st.plotly_chart(fig_area, use_container_width=True)
 
+    # --- TAB 3: COMPOSITION (Donut, Treemap, Stacked Bar) ---
     with tab3:
-        st.markdown("### Cluster Value Distribution")
-        fig_violin = px.violin(
-            df_raw, y=f_z, x='Cluster', color='Cluster',
-            box=True, points="all",
-            color_discrete_sequence=palette_map[palette],
-            template="plotly_dark"
-        )
-        st.plotly_chart(fig_violin, use_container_width=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("#### Hierarchical Composition")
+        c3a, c3b = st.columns([1, 2])
+        with c3a:
+            fig_donut = px.pie(df, names='Cluster', hole=0.5, color_discrete_sequence=c_seq, template="plotly_dark")
+            fig_donut.update_layout(showlegend=False)
+            st.plotly_chart(fig_donut, use_container_width=True)
+        with c3b:
+            path_cols = ['Cluster']
+            if 'Country' in df.columns: path_cols.append('Country')
+            fig_tree = px.treemap(df, path=path_cols, values=f_z, color='Cluster', 
+                                  color_discrete_sequence=c_seq, template="plotly_dark")
+            st.plotly_chart(fig_tree, use_container_width=True)
+        
+        st.markdown("#### Segment Stacked Breakdown")
+        fig_stacked = px.bar(df, x='Cluster', y=f_z, color='Cluster', barmode='stack', template="plotly_dark")
+        st.plotly_chart(fig_stacked, use_container_width=True)
 
+    # --- TAB 4: DISTRIBUTION (Histogram, Box Plot) ---
+    with tab4:
+        c4a, c4b = st.columns(2)
+        with c4a:
+            st.markdown("#### Population Density (Histogram)")
+            fig_hist = px.histogram(df, x=f_z, color='Cluster', marginal="rug", template="plotly_dark")
+            st.plotly_chart(fig_hist, use_container_width=True)
+        with c4b:
+            st.markdown("#### Statistical Spread (Box Plot)")
+            fig_box = px.box(df, y=f_z, x='Cluster', color='Cluster', template="plotly_dark")
+            st.plotly_chart(fig_box, use_container_width=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
 else:
-    st.info("👋 Upload a CSV file in the sidebar to generate the glassy analysis dashboard.")
+    st.info("💎 Welcome to NeuroCluster Analytics. Please upload your CSV to begin.")
