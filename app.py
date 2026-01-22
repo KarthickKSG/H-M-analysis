@@ -1,22 +1,8 @@
-# --- 1. COMPATIBILITY PATCH (FOR PYTHON 3.12+) ---
 import sys
-try:
-    import distutils.version
-except ImportError:
-    import looseversion
-    import types
-    distutils = types.ModuleType("distutils")
-    distutils.version = types.ModuleType("version")
-    distutils.version.LooseVersion = looseversion.LooseVersion
-    sys.modules["distutils"] = distutils
-    sys.modules["distutils.version"] = distutils.version
-
-# --- 2. IMPORTS ---
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans, DBSCAN, OPTICS, Birch
 from sklearn.mixture import GaussianMixture
@@ -25,162 +11,122 @@ import hdbscan
 from sklearn.metrics import silhouette_score
 import time
 
-# --- 3. PAGE CONFIGURATION ---
-st.set_page_config(page_title="NeuroCluster | Stress Analysis", layout="wide", page_icon="🧠")
+# --- CONFIG ---
+st.set_page_config(page_title="NeuroCluster | Excess Mortality", layout="wide", page_icon="📊")
 
-# Professional Dark Theme CSS
+# --- CYBER STYLING ---
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; }
-    .stButton>button {
-        width: 100%; border-radius: 12px; height: 3.5em; 
-        background-image: linear-gradient(to right, #6a11cb 0%, #2575fc 100%);
-        color: white; border: none; font-weight: bold; transition: 0.4s;
+    .stApp { background: #0e1117; color: white; }
+    section[data-testid="stSidebar"] { background-color: rgba(20, 25, 35, 0.8); }
+    .metric-card {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 20px;
+        border-radius: 15px;
+        border-left: 5px solid #4facfe;
+        margin-bottom: 10px;
     }
-    .stButton>button:hover { transform: scale(1.02); box-shadow: 0 10px 20px rgba(0,0,0,0.4); }
-    .upload-box { border: 2px dashed #444; padding: 30px; border-radius: 15px; text-align: center; }
-    .metric-card { background: #1e2130; padding: 20px; border-radius: 15px; border-left: 5px solid #2575fc; }
+    h1 { color: #4facfe; font-weight: 800; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. LANDING & UPLOAD ---
-st.title("🧠 NeuroCluster AI")
-st.subheader("Clustering Analisis Tingkat Stress Manusia")
-
-if 'analyzed' not in st.session_state:
-    st.session_state.analyzed = False
-
-# Step 1: File Upload
-uploaded_file = st.file_uploader("📁 Step 1: Upload CSV Data to Start Analysis", type="csv")
-
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-    st.success(f"Successfully loaded {uploaded_file.name} ({len(df)} rows)")
+# --- SIDEBAR ---
+with st.sidebar:
+    st.title("⚙️ Control Panel")
+    uploaded_file = st.file_uploader("Upload Excess Deaths CSV", type="csv")
     
-    # Show Data Preview
-    with st.expander("👀 View Data Preview"):
-        st.dataframe(df.head(10), use_container_width=True)
-
-    # Step 2: Configuration columns
-    st.divider()
-    st.markdown("### ⚙️ Step 2: Configure Parameters")
-    
-    col_cfg1, col_cfg2 = st.columns([1, 1])
-    
-    with col_cfg1:
-        st.markdown("#### Feature Mapping")
-        num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        if len(num_cols) < 3:
-            st.error("Error: Dataset must have at least 3 numerical columns.")
-            st.stop()
-            
-        feat_x = st.selectbox("X-Axis (e.g., Stress Triggers)", num_cols, index=0)
-        feat_y = st.selectbox("Y-Axis (e.g., Resilience)", num_cols, index=1)
-        feat_z = st.selectbox("Z-Axis (e.g., Current Load)", num_cols, index=2)
+    if uploaded_file:
+        df_raw = pd.read_csv(uploaded_file)
         
-    with col_cfg2:
-        st.markdown("#### Algorithm Selection")
-        selected_algo = st.selectbox("Choose Clustering Logic", [
-            "K-Means (Centroid-based)",
-            "K-Medoids (Exemplar-based)",
-            "DBSCAN (Density-based)",
-            "OPTICS (Multi-density)",
-            "HDBSCAN (Hierarchical)",
-            "Gaussian Mixture (Probabilistic)",
-            "BIRCH (Grid-based)"
-        ])
-        
-        # Dynamic hyperparams
-        algo_params = {}
-        if "K-Means" in selected_algo or "K-Medoids" in selected_algo:
-            algo_params['k'] = st.slider("Number of Clusters (k)", 2, 10, 3)
-        elif "DBSCAN" in selected_algo:
-            algo_params['eps'] = st.slider("Epsilon (Radius)", 0.1, 5.0, 0.5)
-            algo_params['min_samples'] = st.number_input("Min Samples", 2, 20, 5)
-
-    # Step 3: Trigger Analysis
-    if st.button("🚀 START CLUSTERING ANALYSIS"):
-        st.session_state.analyzed = True
-        with st.spinner("Initializing NeuroCluster Engines..."):
-            time.sleep(1.5) # For dramatic effect
-
-    # --- 5. EXECUTION & VISUALIZATION ---
-    if st.session_state.analyzed:
         st.divider()
+        st.markdown("### 🔍 Filter Population")
+        # Allow user to narrow down the data (e.g., just 'Total' gender or specific 'Age')
+        unique_genders = df_raw['Gender'].unique().tolist()
+        sel_gender = st.multiselect("Select Gender", unique_genders, default=unique_genders[0])
         
-        # Prepare Data
-        X = df[[feat_x, feat_y, feat_z]].fillna(0)
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
+        unique_ages = df_raw['Age'].unique().tolist()
+        sel_age = st.multiselect("Select Age Group", unique_ages, default=unique_ages)
         
-        # Modeling
+        # Apply Filters
+        df_filtered = df_raw[(df_raw['Gender'].isin(sel_gender)) & (df_raw['Age'].isin(sel_age))]
+        
+        st.divider()
+        st.markdown("### 🧬 Axis Mapping")
+        num_cols = df_filtered.select_dtypes(include=[np.number]).columns.tolist()
+        
+        # Default mapping for your dataset
+        feat_x = st.selectbox("X-Axis (Temporal)", num_cols, index=num_cols.index('Week number') if 'Week number' in num_cols else 0)
+        feat_y = st.selectbox("Y-Axis (Yearly)", num_cols, index=num_cols.index('Year') if 'Year' in num_cols else 0)
+        feat_z = st.selectbox("Z-Axis (Impact/Value)", num_cols, index=num_cols.index('Value') if 'Value' in num_cols else 0)
+        
+        st.divider()
+        selected_algo = st.selectbox("Clustering Engine", ["K-Means", "K-Medoids", "DBSCAN", "Gaussian Mixture"])
+        k_val = st.slider("Clusters (K)", 2, 10, 4) if selected_algo != "DBSCAN" else None
+        eps = st.slider("Epsilon", 0.1, 2.0, 0.5) if selected_algo == "DBSCAN" else None
+
+# --- MAIN CONTENT ---
+st.title("🧠 NeuroCluster: Excess Mortality Analysis")
+
+if uploaded_file is None:
+    st.info("👈 Please upload your Excess Deaths CSV to begin.")
+    st.markdown("""
+    **Dataset detected structure:**
+    - **Countries:** Groups like CZE, NLD, SWE.
+    - **Time:** Week and Year tracking.
+    - **Impact:** Excess deaths ('Value' column).
+    """)
+else:
+    # Prepare Data
+    X = df_filtered[[feat_x, feat_y, feat_z]].dropna()
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    
+    if st.sidebar.button("🚀 RUN CLUSTER ANALYSIS"):
         try:
-            if "K-Means" in selected_algo:
-                model = KMeans(n_clusters=algo_params['k'], random_state=42)
-            elif "K-Medoids" in selected_algo:
-                model = KMedoids(n_clusters=algo_params['k'], random_state=42)
-            elif "DBSCAN" in selected_algo:
-                model = DBSCAN(eps=algo_params['eps'], min_samples=algo_params['min_samples'])
-            elif "OPTICS" in selected_algo:
-                model = OPTICS(min_samples=5)
-            elif "HDBSCAN" in selected_algo:
-                model = hdbscan.HDBSCAN(min_cluster_size=5)
-            elif "Gaussian Mixture" in selected_algo:
-                model = GaussianMixture(n_components=3)
-            elif "BIRCH" in selected_algo:
-                model = Birch(n_clusters=3)
+            if selected_algo == "K-Means":
+                model = KMeans(n_clusters=k_val, random_state=42, n_init=10)
+            elif selected_algo == "K-Medoids":
+                model = KMedoids(n_clusters=k_val, random_state=42)
+            elif selected_algo == "DBSCAN":
+                model = DBSCAN(eps=eps, min_samples=3)
+            elif selected_algo == "Gaussian Mixture":
+                model = GaussianMixture(n_components=k_val)
             
             labels = model.fit_predict(X_scaled)
-            df['Cluster'] = labels.astype(str)
+            df_filtered['Cluster'] = [f"Cluster {l}" if l != -1 else "Noise" for l in labels]
             
-            # --- Results Dashboard ---
-            res1, res2, res3 = st.columns(3)
-            with res1:
-                st.markdown(f'<div class="metric-card"><h4>Algorithm</h4><h2>{selected_algo.split()[0]}</h2></div>', unsafe_allow_html=True)
-            with res2:
-                n_clusters = len(np.unique(labels[labels != -1]))
-                st.markdown(f'<div class="metric-card"><h4>Clusters Found</h4><h2>{n_clusters}</h2></div>', unsafe_allow_html=True)
-            with res3:
-                if n_clusters > 1:
-                    score = silhouette_score(X_scaled, labels)
-                    st.markdown(f'<div class="metric-card"><h4>Silhouette Score</h4><h2>{score:.2f}</h2></div>', unsafe_allow_html=True)
-            
-            # --- Extraordinary Animations ---
-            st.markdown("### 🌐 Dynamic 3D Stress Mapping")
-            
+            # --- RESULTS ---
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown(f'<div class="metric-card">Target: <b>{selected_algo}</b></div>', unsafe_allow_html=True)
+            with col2:
+                n_c = len(set(labels)) - (1 if -1 in labels else 0)
+                st.markdown(f'<div class="metric-card">Groups Found: <b>{n_c}</b></div>', unsafe_allow_html=True)
+            with col3:
+                score = silhouette_score(X_scaled, labels) if n_c > 1 else 0
+                st.markdown(f'<div class="metric-card">Reliability: <b>{score:.2f}</b></div>', unsafe_allow_html=True)
+
+            # --- 3D VISUALIZATION ---
+            st.markdown("### 🌐 3D Mortality Clusters")
             fig = px.scatter_3d(
-                df, x=feat_x, y=feat_y, z=feat_z,
+                df_filtered, x=feat_x, y=feat_y, z=feat_z,
                 color='Cluster',
-                hover_name=df.columns[0],
-                symbol='Cluster',
-                opacity=0.8,
+                hover_name='Country',
+                hover_data=['Gender', 'Age', 'Value'],
                 template="plotly_dark",
-                color_discrete_sequence=px.colors.qualitative.Alphabet,
-                animation_frame='Cluster' if "K-Means" in selected_algo else None # Animate group appearance
-            )
-            
-            fig.update_layout(
-                scene=dict(camera=dict(eye=dict(x=1.5, y=1.5, z=1.5))),
-                margin=dict(l=0, r=0, b=0, t=0),
+                color_discrete_sequence=px.colors.qualitative.Safe,
                 height=700
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            # Comparison View
-            st.markdown("### 📊 Regional Cluster Distribution")
-            fig_bar = px.histogram(df, x="Cluster", color="Cluster", 
-                                   animation_frame="Cluster",
-                                   template="plotly_dark", barmode="group")
-            st.plotly_chart(fig_bar, use_container_width=True)
-
+            # --- ANALYSIS ---
+            t1, t2 = st.tabs(["📊 Statistics", "📋 Data View"])
+            with t1:
+                st.markdown("#### Average Impact per Cluster")
+                avg_impact = df_filtered.groupby('Cluster')[['Value']].mean()
+                st.bar_chart(avg_impact)
+            with t2:
+                st.dataframe(df_filtered)
+                
         except Exception as e:
-            st.error(f"Analysis Error: {str(e)}")
-
-else:
-    # Initial State Instruction
-    st.info("👋 Welcome! Please upload a CSV file to begin the human stress clustering process.")
-    st.markdown("""
-    **Required Data Format:**
-    - A CSV file containing at least 3 numerical columns (e.g., Stress Score, Heart Rate, Hours of Sleep).
-    - Optional: A text column for names/identifiers (e.g., Country or Participant ID).
-    """)
+            st.error(f"Analysis failed: {e}")
